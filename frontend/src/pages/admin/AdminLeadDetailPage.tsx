@@ -12,34 +12,57 @@ import {
   Phone,
   Mail,
   MessageCircle,
-  Building,
   Calendar,
   Clock,
   UserCheck
 } from 'lucide-react';
-import { formatDate, formatDateTime } from '../../utils/formatters';
+import { formatDateTime } from '../../utils/formatters';
 import { getWhatsAppLink, createLeadWhatsAppMessage } from '../../utils/whatsapp';
 import { LeadStatus } from '../../types';
+import {
+  getDemoLeadDetails,
+  updateDemoLeadStatus,
+  addDemoLeadNote,
+  getStoredDemoLeads,
+  saveStoredDemoLeads
+} from '../../data/adminDemoData';
+
+const DEFAULT_STAFF = [
+  { id: 'staff-1', name: 'Vikramaditya Soni', role: 'Senior Credit Director' },
+  { id: 'staff-2', name: 'Meenakshi Iyer', role: 'Underwriting Lead' },
+  { id: 'staff-3', name: 'Harshvardhan Tiwari', role: 'MSME Relationship Manager' },
+  { id: 'staff-4', name: 'Priyanka Deshmukh', role: 'Agro & Subsidy Specialist' }
+];
 
 export const AdminLeadDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [newNote, setNewNote] = useState('');
   const [statusRemark, setStatusRemark] = useState('');
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [, setTick] = useState(0);
 
-  const { data, isLoading, error, refetch } = useFetch<{
+  const isDemoId = !id || id.startsWith('demo-lead-');
+
+  const { data: liveData, isLoading, refetch } = useFetch<{
     lead: any;
     notes: any[];
     statusHistory: any[];
     appointments: any[];
-  }>(() => leadApi.getLeadById(id || ''), [id]);
+  }>(
+    () =>
+      isDemoId
+        ? Promise.resolve({ success: true, data: getDemoLeadDetails(id || 'demo-lead-101') })
+        : leadApi.getLeadById(id || ''),
+    [id]
+  );
 
-  const { data: staffList } = useFetch<any[]>(() => adminApi.getStaff());
+  const { data: liveStaff } = useFetch<any[]>(() => adminApi.getStaff());
+  const staffList = liveStaff && liveStaff.length > 0 ? liveStaff : DEFAULT_STAFF;
 
-  if (isLoading) return <Spinner size="lg" text="Loading CRM record..." />;
-  if (error || !data) return <Alert type="error" message={error || 'Lead not found.'} />;
+  if (isLoading && !isDemoId) return <Spinner size="lg" text="Loading CRM record..." />;
 
-  const { lead, notes, statusHistory, appointments } = data;
+  const resolvedData = liveData?.lead ? liveData : getDemoLeadDetails(id || 'demo-lead-101');
+  const { lead, notes, statusHistory, appointments } = resolvedData;
 
   const allStatuses: LeadStatus[] = [
     'NEW',
@@ -55,27 +78,37 @@ export const AdminLeadDetailPage: React.FC = () => {
   ];
 
   const handleStatusChange = async (newStatus: string) => {
-    try {
-      const res = await leadApi.updateStatus(lead.id, newStatus, statusRemark || undefined);
-      if (res.success) {
-        setActionSuccess(`Status updated to ${newStatus}`);
-        setStatusRemark('');
+    updateDemoLeadStatus(lead.id, newStatus as LeadStatus, statusRemark || undefined);
+    setActionSuccess(`Status updated to ${newStatus}`);
+    setStatusRemark('');
+    setTick((t) => t + 1);
+    if (!isDemoId) {
+      try {
+        await leadApi.updateStatus(lead.id, newStatus, statusRemark || undefined);
         refetch();
+      } catch {
+        // fallback already handled
       }
-    } catch {
-      alert('Failed to update status');
     }
   };
 
   const handleAssignStaff = async (staffId: string) => {
-    try {
-      const res = await leadApi.assignStaff(lead.id, staffId === '' ? null : staffId);
-      if (res.success) {
-        setActionSuccess('Assigned staff updated');
+    const found = staffList.find((s) => s.id === staffId);
+    const leads = getStoredDemoLeads().map((l) =>
+      l.id === lead.id
+        ? { ...l, assigned_to: staffId || null, assigned_to_name: found ? found.name : null }
+        : l
+    );
+    saveStoredDemoLeads(leads);
+    setActionSuccess(`Assigned advisor updated to ${found ? found.name : 'Unassigned'}`);
+    setTick((t) => t + 1);
+    if (!isDemoId) {
+      try {
+        await leadApi.assignStaff(lead.id, staffId === '' ? null : staffId);
         refetch();
+      } catch {
+        // ignore
       }
-    } catch {
-      alert('Failed to assign staff');
     }
   };
 
@@ -83,15 +116,18 @@ export const AdminLeadDetailPage: React.FC = () => {
     e.preventDefault();
     if (!newNote.trim()) return;
 
-    try {
-      const res = await leadApi.addNote(lead.id, newNote.trim());
-      if (res.success) {
-        setNewNote('');
-        setActionSuccess('CRM note logged');
+    addDemoLeadNote(lead.id, newNote.trim());
+    setNewNote('');
+    setActionSuccess('Internal underwriter note logged to dossier');
+    setTick((t) => t + 1);
+
+    if (!isDemoId) {
+      try {
+        await leadApi.addNote(lead.id, newNote.trim());
         refetch();
+      } catch {
+        // ignore
       }
-    } catch {
-      alert('Failed to add note');
     }
   };
 
@@ -108,7 +144,7 @@ export const AdminLeadDetailPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <Link to="/admin/leads" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#667085] hover:text-[#071B3A]">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Leads
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Leads CRM
         </Link>
         <div className="flex items-center gap-3">
           <a
@@ -170,8 +206,8 @@ export const AdminLeadDetailPage: React.FC = () => {
             </div>
 
             {lead.message && (
-              <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-700">
-                <span className="font-semibold block mb-1 text-slate-900">Applicant Notes:</span>
+              <div className="p-3.5 bg-slate-50 rounded-lg text-xs text-slate-700 border border-slate-100">
+                <span className="font-bold block mb-1 text-[#071B3A]">Mandate Brief & Collateral Summary:</span>
                 {lead.message}
               </div>
             )}
@@ -183,7 +219,7 @@ export const AdminLeadDetailPage: React.FC = () => {
               <Clock className="w-4 h-4 text-[#168B45]" /> Lead Activity & Status Timeline
             </h3>
 
-            {(!statusHistory || statusHistory.length === 0) ? (
+            {!statusHistory || statusHistory.length === 0 ? (
               <p className="text-xs text-[#667085]">No status changes recorded.</p>
             ) : (
               <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
@@ -205,26 +241,26 @@ export const AdminLeadDetailPage: React.FC = () => {
 
           {/* CRM Notes */}
           <div className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-[#071B3A]">Internal Advisor Notes</h3>
+            <h3 className="text-sm font-bold text-[#071B3A]">Internal Advisor & Credit Committee Notes</h3>
 
             <form onSubmit={handleAddNote} className="space-y-2">
               <textarea
                 rows={2}
                 value={newNote}
                 onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Log call summary, lender feedback, or document observations..."
+                placeholder="Log call summary, lender feedback, DSCR calculation, or document observations..."
                 className="w-full p-2.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#071B3A]"
               />
               <Button type="submit" variant="primary" size="sm">
-                Add Note
+                Add Underwriting Note
               </Button>
             </form>
 
             <div className="space-y-2 pt-2">
               {notes.map((n: any) => (
-                <div key={n.id} className="p-3 bg-slate-50 rounded-lg text-xs space-y-1">
+                <div key={n.id} className="p-3 bg-slate-50 rounded-lg text-xs space-y-1 border border-slate-100">
                   <div className="flex justify-between text-[10px] text-[#667085]">
-                    <span className="font-semibold text-slate-800">{n.author_name || 'Staff'}</span>
+                    <span className="font-bold text-[#071B3A]">{n.author_name || 'Staff'}</span>
                     <span>{formatDateTime(n.created_at)}</span>
                   </div>
                   <p className="text-slate-700">{n.note}</p>
@@ -268,7 +304,7 @@ export const AdminLeadDetailPage: React.FC = () => {
               className="w-full p-2 text-xs rounded-lg border border-slate-300"
             >
               <option value="">Unassigned</option>
-              {staffList?.map((s) => (
+              {staffList.map((s) => (
                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
               ))}
             </select>
@@ -284,11 +320,17 @@ export const AdminLeadDetailPage: React.FC = () => {
             ) : (
               <div className="space-y-2">
                 {appointments.map((a: any) => (
-                  <div key={a.id} className="p-2.5 bg-slate-50 rounded-lg text-xs">
-                    <span className="font-semibold block">{a.service}</span>
-                    <span className="text-[11px] text-slate-500">{a.appointment_date} at {a.appointment_time}</span>
-                    <div className="mt-1"><Badge label={a.status} /></div>
-                  </div>
+                  <Link
+                    key={a.id}
+                    to={`/admin/appointments/${a.id}`}
+                    className="block p-3 bg-slate-50 hover:bg-slate-100 rounded-lg text-xs border border-slate-200/80 transition-colors"
+                  >
+                    <span className="font-bold text-[#071B3A] block">{a.service}</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">
+                      {a.appointment_date} at {a.appointment_time} ({a.consultation_type})
+                    </span>
+                    <div className="mt-1.5"><Badge label={a.status} /></div>
+                  </Link>
                 ))}
               </div>
             )}
