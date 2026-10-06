@@ -3,9 +3,15 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
+export const DATABASE_STATUS =
+  process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== ''
+    ? 'CONFIGURED'
+    : 'DATABASE_NOT_CONFIGURED';
+
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  databaseStatus: DATABASE_STATUS,
   databaseUrl: process.env.DATABASE_URL || '',
   jwtSecret: process.env.JWT_SECRET || 'fallback_secret_change_in_prod',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',

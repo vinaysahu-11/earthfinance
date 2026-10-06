@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { config } from './config/env';
+import { config, DATABASE_STATUS } from './config/env';
 import { verifyConnection } from './config/database';
 import { apiLimiter } from './middleware/rateLimiter';
 import { errorHandler } from './middleware/errorHandler';
@@ -33,6 +33,18 @@ app.use('/api', apiLimiter);
 
 // Health check endpoint
 app.get('/api/health', async (_req: Request, res: Response) => {
+  if (DATABASE_STATUS === 'DATABASE_NOT_CONFIGURED') {
+    return res.status(200).json({
+      status: 'UP',
+      timestamp: new Date().toISOString(),
+      service: 'Earth Finance API',
+      database: {
+        state: 'DATABASE_NOT_CONFIGURED',
+        connected: false
+      }
+    });
+  }
+
   const dbConnected = await verifyConnection();
   const statusCode = dbConnected ? 200 : 503;
 
@@ -41,7 +53,7 @@ app.get('/api/health', async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     service: 'Earth Finance API',
     database: {
-      provider: 'InsForge PostgreSQL',
+      state: dbConnected ? 'CONNECTED' : 'DISCONNECTED',
       connected: dbConnected
     }
   });
@@ -55,13 +67,16 @@ app.use(errorHandler);
 
 // Start server
 const startServer = async () => {
-  const isDbConnected = await verifyConnection();
-  if (isDbConnected) {
-    logger.info('✓ Connected to InsForge PostgreSQL Database.');
-    // Run safe seed check
-    await seedAdmin();
+  if (DATABASE_STATUS === 'DATABASE_NOT_CONFIGURED') {
+    logger.info('ℹ️ [DATABASE_NOT_CONFIGURED] Earth Finance is running in database-independent mode (not connected to any InsForge project).');
   } else {
-    logger.error('❌ Could not connect to InsForge PostgreSQL Database on startup.');
+    const isDbConnected = await verifyConnection();
+    if (isDbConnected) {
+      logger.info('✓ Connected to PostgreSQL Database.');
+      await seedAdmin();
+    } else {
+      logger.error('❌ Could not connect to PostgreSQL Database on startup.');
+    }
   }
 
   const server = app.listen(config.port, () => {

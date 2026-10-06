@@ -1,24 +1,37 @@
 import { Pool, QueryResult, QueryResultRow } from 'pg';
-import { config } from './env';
+import { config, DATABASE_STATUS } from './env';
 
-export const pool = new Pool({
-  connectionString: config.databaseUrl,
-  ssl: {
-    rejectUnauthorized: false
-  },
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000
-});
+const isConfigured = Boolean(config.databaseUrl && config.databaseUrl.trim() !== '');
 
-pool.on('error', (err) => {
-  console.error('[DB Error] Unexpected error on idle database client', err);
-});
+export const pool: Pool | null = isConfigured
+  ? new Pool({
+      connectionString: config.databaseUrl,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000
+    })
+  : null;
+
+if (pool) {
+  pool.on('error', (err) => {
+    console.error('[DB Error] Unexpected error on idle database client', err);
+  });
+}
+
+export const getDatabaseState = () => DATABASE_STATUS;
 
 export const query = async <T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> => {
+  if (!pool) {
+    const err = new Error('DATABASE_NOT_CONFIGURED: Earth Finance is not connected to any database.');
+    (err as any).code = 'DATABASE_NOT_CONFIGURED';
+    throw err;
+  }
   const start = Date.now();
   const res = await pool.query<T>(text, params);
   const duration = Date.now() - start;
@@ -29,6 +42,9 @@ export const query = async <T extends QueryResultRow = any>(
 };
 
 export const verifyConnection = async (): Promise<boolean> => {
+  if (!pool) {
+    return false;
+  }
   try {
     const client = await pool.connect();
     const result = await client.query('SELECT 1 as connected');

@@ -1,9 +1,14 @@
 import bcrypt from 'bcryptjs';
 import { query, pool } from '../config/database';
-import { config } from '../config/env';
+import { config, DATABASE_STATUS } from '../config/env';
 import { logger } from '../utils/logger';
 
 export const seedAdmin = async () => {
+  if (DATABASE_STATUS === 'DATABASE_NOT_CONFIGURED') {
+    logger.info('[SeedAdmin] DATABASE_NOT_CONFIGURED. Skipping admin seed.');
+    return;
+  }
+
   const email = config.admin.email;
   const password = config.admin.password;
 
@@ -39,6 +44,6 @@ export const seedAdmin = async () => {
 
 if (require.main === module) {
   seedAdmin().then(() => {
-    pool.end();
+    pool?.end();
   });
 }
