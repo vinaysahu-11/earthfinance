@@ -7,6 +7,8 @@ export interface AdminUser {
   role: AdminRole;
   is_active: boolean;
   last_login?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type LeadStatus =

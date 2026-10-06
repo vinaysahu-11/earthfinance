@@ -86,9 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: 'admin',
           role: 'SUPER_ADMIN',
           is_active: true,
-          last_login: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          last_login: new Date().toISOString()
         };
         const fallbackToken = 'local-super-admin-token';
         localStorage.setItem('earth_admin_token', fallbackToken);
